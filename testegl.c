@@ -5,12 +5,14 @@
 #include <iostream>
 #include <fstream>
 
+
 #define HAVE_X11
 #define GST_GL_HAVE_WINDOW_X11 1
 
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
 #include <thread>
+
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -137,7 +139,7 @@ typedef struct
   GstGLDisplayEGL *gst_display = nullptr;
   GstGLDisplayX11 *x_gst_display = nullptr;
   GstGLContext *gl_context = nullptr;
-  GstGLContext* newContext = nullptr;
+  GstGLContext* sharedContext = nullptr;
 
   GstContext* egl_context = nullptr;
   GstContext* gst_context = nullptr;
@@ -175,17 +177,16 @@ static bool save_tga(APP_STATE_T * state, std::string name)
 
 static bool save_gst_tga(GstGLContext * context, APP_STATE_T * state)
 {
-    if (!gst_gl_context_activate(state->newContext, true))
+    if (!gst_gl_context_activate(state->sharedContext, true))
         g_print("gst_gl_context_activate(true) returned error %d\n", eglGetError());
 
-    g_print("gst_gl_context_activate(newContext) is successful\n");
-
+    g_print("gst_gl_context_activate(sharedContext) is successful\n");
     return save_tga(state, "tga_file_gst.tga");
 }
 
 static void gst_context_activate(APP_STATE_T * state)
 {
-    if (!gst_gl_context_activate(state->newContext, true))
+    if (!gst_gl_context_activate(state->sharedContext, true))
     {
         g_print("gst_gl_context_activate(false) returned error %d\n", eglGetError());
     }
@@ -244,7 +245,7 @@ static void init_egl(APP_STATE_T * state)
 
   // get an EGL display connection
   state->egl_display = eglGetDisplay (nativeDisplay);
-  assert (state->display != EGL_NO_DISPLAY);
+  assert (state->egl_display != EGL_NO_DISPLAY);
 
   g_print ("Display created!\n");
   // initialize the EGL display connection
@@ -281,7 +282,7 @@ static void create_shared_context(APP_STATE_T * state)
 {
     static const EGLint contextAttrs[] = {12440, 3, 12539, 2, 12540, 1, 12344, 1, 12323, 1, 12322, 1, 12321, 1, 12344, 32767, -150598962, 32767, -140972593, 32767};
 
-    state->m_LocalThreadContext = eglCreateContext(state->display, state->config, state->context, contextAttrs);
+    state->m_LocalThreadContext = eglCreateContext(state->egl_display, state->config, state->context, contextAttrs);
     if (!state->m_LocalThreadContext)
         g_print("create_shared_context returned error %d", eglGetError());
 
@@ -303,10 +304,10 @@ static void create_gst_shared_context(APP_STATE_T * state)
         g_print("Error: state->gl_context isn't created!\n");
 
     GError *error = NULL;
-    if (!gst_gl_display_create_context(GST_GL_DISPLAY(state->x_gst_display), state->gl_context, &state->newContext, &error))
+    if (!gst_gl_display_create_context(GST_GL_DISPLAY(state->x_gst_display), state->gl_context, &state->sharedContext, &error))
         g_print("Failed to create new context %s\n", error->message);
 
-    if ( !gst_gl_display_add_context(GST_GL_DISPLAY(state->x_gst_display), state->newContext))
+    if ( !gst_gl_display_add_context(GST_GL_DISPLAY(state->x_gst_display), state->sharedContext))
         g_print("Failed to add new context to display\n");
 }
 
@@ -452,8 +453,8 @@ static void draw_triangle(APP_STATE_T * state)
   glDrawArrays (GL_TRIANGLE_STRIP, 16, 4);
   glDrawArrays (GL_TRIANGLE_STRIP, 20, 4);
 
-  if (!eglSwapBuffers (state->display, state->surface)) {
-    g_main_loop_quit (state->main_loop);
+  if (!eglSwapBuffers (state->egl_display, state->surface)) {
+    //g_main_loop_quit (state->main_loop);
     return;
   }
 
@@ -492,7 +493,6 @@ int main (int argc, char **argv)
     // Clear application state.
     memset (state, 0, sizeof (*state));
     state->animate = TRUE;
-    state->current_buffer = NULL;
     state->caps = NULL;
 
     // Initialize GStreamer.
@@ -515,7 +515,7 @@ int main (int argc, char **argv)
     save_tga(state, "tga_file.tga");
 
      gst_gl_context_thread_add(
-        state->newContext,
+        state->sharedContext,
         (GstGLContextThreadFunc)save_gst_tga,
         state
     );
