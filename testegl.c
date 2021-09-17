@@ -23,6 +23,8 @@
 
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
+#include <gst/gl/gstglfuncs.h>
+
 
 #define GST_USE_UNSTABLE_API
 #include <gst/gl/gl.h>
@@ -136,7 +138,7 @@ typedef struct
   GstElement *vsink;
   GstElement *appsrc;
   GstElement *gldownload;
-  GstGLDisplayEGL *gst_display = nullptr;
+  GstGLDisplayEGL *egl_gst_display = nullptr;
   GstGLDisplayX11 *x_gst_display = nullptr;
   GstGLContext *gl_context = nullptr;
   GstGLContext* sharedContext = nullptr;
@@ -161,7 +163,7 @@ static APP_STATE_T _state, *state = &_state;
 static bool save_tga(APP_STATE_T * state, std::string name)
 {
     int* buffer1 = new int[ 300 * 300 * 4 ];
-    glReadPixels( 0, 0, 300, 300, GL_RGBA, GL_UNSIGNED_BYTE, buffer1 );
+    glReadPixels( 0, 0, 300, 300, GL_RGBA, GL_UNSIGNED_BYTE, buffer1);
 
     std::string file = "/root/picsart/ve-linux-plugins/pi/test/" + name;
     FILE *out = fopen(file.c_str(), "w");
@@ -177,11 +179,22 @@ static bool save_tga(APP_STATE_T * state, std::string name)
 
 static bool save_gst_tga(GstGLContext * context, APP_STATE_T * state)
 {
-    if (!gst_gl_context_activate(state->sharedContext, true))
-        g_print("gst_gl_context_activate(true) returned error %d\n", eglGetError());
+    int* buffer1 = new int[ 300 * 300 * 4 ];
+    const GstGLFuncs *gl = state->sharedContext->gl_vtable;
 
-    g_print("gst_gl_context_activate(sharedContext) is successful\n");
-    return save_tga(state, "tga_file_gst.tga");
+    gl->ReadPixels( 0, 0, 300, 300, GL_RGBA, GL_UNSIGNED_BYTE, buffer1 );
+
+    std::string name = "tga_file_gst.tga";
+    std::string file = "/root/picsart/ve-linux-plugins/pi/test/" + name;
+    FILE *out = fopen(file.c_str(), "w");
+
+    short  TGAhead[] = {0, 2, 0, 0, 0, 0, 300, 300, 32};
+    fwrite(&TGAhead, sizeof(TGAhead), 1, out);
+    fwrite(buffer1, 4 * 300 * 300, 1, out);
+    fclose(out);
+
+    g_print("save_gst_tga %s succeed!\n", name.c_str());
+    return true;
 }
 
 static void gst_context_activate(APP_STATE_T * state)
@@ -293,7 +306,7 @@ static void create_shared_context(APP_STATE_T * state)
 
 static void create_gst_shared_context(APP_STATE_T * state)
 {
-    state->gst_display = gst_gl_display_egl_new_with_egl_display(state->egl_display);
+    //state->egl_gst_display = gst_gl_display_egl_new_with_egl_display(state->egl_display);
     state->x_gst_display = gst_gl_display_x11_new_with_display(state->xdisplay);
 
     state->gl_context =
@@ -514,7 +527,7 @@ int main (int argc, char **argv)
     // Save the texture to tga file.
     save_tga(state, "tga_file.tga");
 
-     gst_gl_context_thread_add(
+    gst_gl_context_thread_add(
         state->sharedContext,
         (GstGLContextThreadFunc)save_gst_tga,
         state
